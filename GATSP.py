@@ -1,9 +1,12 @@
 """
 code by Eric Stoltz
+modification for use wisth celery: Juan P. Giraldo
 """
 
-import numpy as np, random, operator, pandas as pd, matplotlib.pyplot as plt, time, pickle
+import numpy as np, random, operator, pandas as pd, matplotlib.pyplot as plt, time, pickle, celery
 
+app = celery.Celery('GATSP')
+app.config_from_object('config')
 
 class City:
     """class to instantiate city objects (Genes). implements a function to calculate distance between current city
@@ -24,7 +27,7 @@ class City:
 
 
 class Fitness:
-    """Class instantiate to calculate the fitness and length of a distance"""
+    """Class instantiated to calculate the fitness and length of a distance"""
 
     def __init__(self, route):
         self.route = route
@@ -70,10 +73,18 @@ def initialPopulation(popSize, cityList):
 def rankRoutes(population):
     """rank a given set of routes by their lengths"""
     fitnessResults = {}
-    for i in range(0, len(population)):  # Todo here start the customizable part
-        fitnessResults[i] = Fitness(population[i]).routeFitness()
+    results = []
+    for i in range(0, len(population)):  # here start the customizable part
+        print(population[i])
+        result = celeryRankRoutes.apply_async(list(population[i]), serializer="pickle")
+        results.append(result)
+    fitnessResults = [result.get() for result in results]
     return sorted(fitnessResults.items(), key=operator.itemgetter(1),
-                  reverse=False)  # TODO set this equal to false to to calculate the longest path
+                  reverse=False)  # set this equal to false to to calculate the longest path
+
+@app.task
+def celeryRankRoutes(population):
+    return Fitness(population).routeFitness()
 
 
 def selection(popRanked, eliteSize):
@@ -179,18 +190,18 @@ def geneticAlgorithm(population, popSize, eliteSize, mutationRate, generations):
     """implementation of genetic algorithm in serial"""
 
     # this commented code is to create a new random population
-    '''pop = initialPopulation(popSize, population)
+    pop = initialPopulation(popSize, population)
     pops = open("pop.pickle", "wb")
     pickle.dump(pop.copy(), pops)
-    '''
+
 
     # code to import previously used population
-    pops = open("pop.pickle", "rb")
+    '''pops = open("pop.pickle", "rb")
     pop = pickle.load(pops)
     pops.close()
 
     print("Initial distance: " + str(1 / rankRoutes(pop)[0][1]))
-
+    '''
     for i in range(0, generations):
         pop = nextGeneration(pop, eliteSize, mutationRate)
 
@@ -214,6 +225,14 @@ def geneticAlgorithmPlot(population, popSize, eliteSize, mutationRate, generatio
     plt.xlabel('Generation')
     plt.show()
 
+@app.task
+def echo23(string):
+    return string
+
+
+result = echo23.delay("hola")
+print(result.get())
+
 
 cityList = []
 
@@ -224,4 +243,4 @@ start = time.monotonic()
 geneticAlgorithm(population=cityList, popSize=99, eliteSize=20, mutationRate=0.01, generations=600)
 # geneticAlgorithmPlot(population=cityList, popSize=100, eliteSize=20, mutationRate=0.01, generations=500)
 end = time.monotonic()
-print("the total time the algorithm took to find the shortest path was: " + str(end - start))
+print("the total time the algorithm took to find the largest path was: " + str(end - start))
